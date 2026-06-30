@@ -2,47 +2,81 @@ const Inquiry = require('../models/Inquiry.model');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/ApiResponse');
+const nodemailer = require('nodemailer'); // 1. Imported nodemailer
+
+// 2. Transporter configured using your .env credentials
+const sendAdminEmailNotification = async (name, email, phone, subject, message) => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.ADMIN_EMAIL) {
+    console.warn("Email configuration missing in .env. Notification skipped.");
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    service: process.env.SMTP_SERVICE || 'gmail',
+    auth: {
+      user: process.env.SMTP_USER, // Your Gmail address
+      pass: process.env.SMTP_PASS  // The 16-character App Password you just added
+    }
+  });
+
+  const mailOptions = {
+    from: `"Website Contact Form" <${process.env.SMTP_USER}>`, 
+    to: process.env.ADMIN_EMAIL, // Admin recipient email
+    subject: `New Inquiry: ${subject || 'No Subject'} - From ${name}`,
+    text: `You have received a new contact form submission.\n\n` +
+          `Details:\n` +
+          `Name: ${name}\n` +
+          `Email: ${email}\n` +
+          `Phone: ${phone || 'N/A'}\n\n` +
+          `Message:\n${message}`,
+    replyTo: email // Clicking reply in your inbox goes directly to the user
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log("Admin notification email sent successfully.");
+  } catch (error) {
+    console.error("Failed to send admin email notification:", error);
+  }
+};
 
 const getInquiries = asyncHandler(async (req, res) => {
   const inquiries = await Inquiry.find().sort({ createdAt: -1 });
   return res.json(inquiries);
 });
 
-// UPGRADED: Added Captcha Verification Logic
+// 3. Updated Inquiry controller
 const createInquiry = asyncHandler(async (req, res) => {
-  // 1. Grab captchaToken from the frontend request body
   const { name, email, phone, subject, message, captchaToken } = req.body;
 
-  // 2. Validate standard required fields
   if (!name || !email || !message) {
     throw new ApiError(400, 'Name, email, and message are required');
   }
 
-  // 3. Ensure the captcha token exists
   if (!captchaToken) {
     throw new ApiError(400, 'Captcha verification token is missing');
   }
 
   try {
-    // 4. Verify token with Google reCAPTCHA API
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
 
     const response = await fetch(verifyUrl, { method: 'POST' });
     const captchaResult = await response.json();
 
-    // 5. If Google says it's a bot or invalid token, block the request
     if (!captchaResult.success) {
       throw new ApiError(400, 'Captcha verification failed. Please try again.');
     }
   } catch (error) {
-    // Catch syntax errors or network timeouts during verification
     if (error instanceof ApiError) throw error;
     throw new ApiError(500, 'Error processing captcha verification');
   }
 
-  // 6. If everything passes, create the record in the database
+  // Create the record in your MongoDB database
   const inquiry = await Inquiry.create({ name, email, phone, subject, message });
+
+  // ⚡ Fire off the email notification instantly in the background
+  sendAdminEmailNotification(name, email, phone, subject, message);
 
   return success(res, { inquiry }, 'Inquiry submitted successfully', 201);
 });
