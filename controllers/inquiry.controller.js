@@ -2,21 +2,20 @@ const Inquiry = require('../models/Inquiry.model');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/ApiResponse');
-const { Resend } = require('resend'); // 1. Import Resend
+const { Resend } = require('resend');
+const isCheckDisposableEmail = require('is-check-disposable-email'); // 1. Imported disposable email package
 
-// 2. Helper function to handle sending email via HTTP API
+// Helper function to handle sending email via HTTP API
 const sendAdminEmailNotification = async (name, email, phone, subject, message) => {
   if (!process.env.RESEND_API_KEY || !process.env.ADMIN_EMAIL) {
     console.warn("Resend email configuration missing in .env. Notification skipped.");
     return;
   }
 
-  // Initialize the Resend client
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   try {
     await resend.emails.send({
-      // Resend provides a free 'onboarding@resend.dev' domain out-of-the-box for testing
       from: 'Website Contact Form <onboarding@resend.dev>', 
       to: process.env.ADMIN_EMAIL, 
       subject: `New Inquiry: ${subject || 'No Subject'} - From ${name}`,
@@ -26,7 +25,7 @@ const sendAdminEmailNotification = async (name, email, phone, subject, message) 
             `Email: ${email}\n` +
             `Phone: ${phone || 'N/A'}\n\n` +
             `Message:\n${message}`,
-      replyTo: email // Clicking reply in your inbox goes straight back to the user
+      replyTo: email 
     });
     console.log("Admin notification email sent successfully via Resend API!");
   } catch (error) {
@@ -40,13 +39,19 @@ const getInquiries = asyncHandler(async (req, res) => {
   return res.json(inquiries);
 });
 
-// 4. Create Inquiry (with Captcha Verification + Resend Email)
+// 4. Create Inquiry (with Fake Email Blocking + Captcha Verification + Resend Email)
 const createInquiry = asyncHandler(async (req, res) => {
   const { name, email, phone, subject, message, captchaToken } = req.body;
 
   // Validate required fields
   if (!name || !email || !message) {
     throw new ApiError(400, 'Name, email, and message are required');
+  }
+
+  // 🛡️ LAYER 1: Prevent Fake / Disposable Emails
+  // This automatically runs a check against 120,000+ burner domains natively.
+  if (isCheckDisposableEmail(email)) {
+    throw new ApiError(400, 'Disposable or temporary email addresses are not allowed. Please use a valid email.');
   }
 
   if (!captchaToken) {
@@ -72,7 +77,7 @@ const createInquiry = asyncHandler(async (req, res) => {
   // Create record in MongoDB
   const inquiry = await Inquiry.create({ name, email, phone, subject, message });
 
-  // ⚡ Trigger Email notification asynchronously via API
+  // Trigger Email notification asynchronously via API
   sendAdminEmailNotification(name, email, phone, subject, message);
 
   return success(res, { inquiry }, 'Inquiry submitted successfully', 201);
