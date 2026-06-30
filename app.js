@@ -8,8 +8,15 @@ const app = express();
 // ========================
 // MIDDLEWARE
 // ======================== 
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
-app.use(express.json());
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "https://lotas-website-frontend.vercel.app",
+    ],
+    credentials: true,
+  })
+);app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ========================
