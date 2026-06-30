@@ -2,53 +2,49 @@ const Inquiry = require('../models/Inquiry.model');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 const { success } = require('../utils/ApiResponse');
-const nodemailer = require('nodemailer'); // 1. Imported nodemailer
+const { Resend } = require('resend'); // 1. Import Resend
 
-// 2. Transporter configured using your .env credentials
+// 2. Helper function to handle sending email via HTTP API
 const sendAdminEmailNotification = async (name, email, phone, subject, message) => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS || !process.env.ADMIN_EMAIL) {
-    console.warn("Email configuration missing in .env. Notification skipped.");
+  if (!process.env.RESEND_API_KEY || !process.env.ADMIN_EMAIL) {
+    console.warn("Resend email configuration missing in .env. Notification skipped.");
     return;
   }
 
-  const transporter = nodemailer.createTransport({
-    service: process.env.SMTP_SERVICE || 'gmail',
-    auth: {
-      user: process.env.SMTP_USER, // Your Gmail address
-      pass: process.env.SMTP_PASS  // The 16-character App Password you just added
-    }
-  });
-
-  const mailOptions = {
-    from: `"Website Contact Form" <${process.env.SMTP_USER}>`, 
-    to: process.env.ADMIN_EMAIL, // Admin recipient email
-    subject: `New Inquiry: ${subject || 'No Subject'} - From ${name}`,
-    text: `You have received a new contact form submission.\n\n` +
-          `Details:\n` +
-          `Name: ${name}\n` +
-          `Email: ${email}\n` +
-          `Phone: ${phone || 'N/A'}\n\n` +
-          `Message:\n${message}`,
-    replyTo: email // Clicking reply in your inbox goes directly to the user
-  };
+  // Initialize the Resend client
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log("Admin notification email sent successfully.");
+    await resend.emails.send({
+      // Resend provides a free 'onboarding@resend.dev' domain out-of-the-box for testing
+      from: 'Website Contact Form <onboarding@resend.dev>', 
+      to: process.env.ADMIN_EMAIL, 
+      subject: `New Inquiry: ${subject || 'No Subject'} - From ${name}`,
+      text: `You have received a new contact form submission.\n\n` +
+            `Details:\n` +
+            `Name: ${name}\n` +
+            `Email: ${email}\n` +
+            `Phone: ${phone || 'N/A'}\n\n` +
+            `Message:\n${message}`,
+      replyTo: email // Clicking reply in your inbox goes straight back to the user
+    });
+    console.log("Admin notification email sent successfully via Resend API!");
   } catch (error) {
-    console.error("Failed to send admin email notification:", error);
+    console.error("Failed to send admin email notification via Resend:", error);
   }
 };
 
+// 3. Get all inquiries
 const getInquiries = asyncHandler(async (req, res) => {
   const inquiries = await Inquiry.find().sort({ createdAt: -1 });
   return res.json(inquiries);
 });
 
-// 3. Updated Inquiry controller
+// 4. Create Inquiry (with Captcha Verification + Resend Email)
 const createInquiry = asyncHandler(async (req, res) => {
   const { name, email, phone, subject, message, captchaToken } = req.body;
 
+  // Validate required fields
   if (!name || !email || !message) {
     throw new ApiError(400, 'Name, email, and message are required');
   }
@@ -57,6 +53,7 @@ const createInquiry = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Captcha verification token is missing');
   }
 
+  // Verify reCAPTCHA token with Google
   try {
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
@@ -72,15 +69,16 @@ const createInquiry = asyncHandler(async (req, res) => {
     throw new ApiError(500, 'Error processing captcha verification');
   }
 
-  // Create the record in your MongoDB database
+  // Create record in MongoDB
   const inquiry = await Inquiry.create({ name, email, phone, subject, message });
 
-  // ⚡ Fire off the email notification instantly in the background
+  // ⚡ Trigger Email notification asynchronously via API
   sendAdminEmailNotification(name, email, phone, subject, message);
 
   return success(res, { inquiry }, 'Inquiry submitted successfully', 201);
 });
 
+// 5. Update Status
 const updateInquiryStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;
   const inquiry = await Inquiry.findByIdAndUpdate(req.params.id, { status }, { new: true });
@@ -88,6 +86,7 @@ const updateInquiryStatus = asyncHandler(async (req, res) => {
   return success(res, { inquiry }, 'Status updated');
 });
 
+// 6. Delete Inquiry
 const deleteInquiry = asyncHandler(async (req, res) => {
   const inquiry = await Inquiry.findByIdAndDelete(req.params.id);
   if (!inquiry) throw new ApiError(404, 'Inquiry not found');
