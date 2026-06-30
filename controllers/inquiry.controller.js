@@ -8,11 +8,40 @@ const getInquiries = asyncHandler(async (req, res) => {
   return res.json(inquiries);
 });
 
+// UPGRADED: Added Captcha Verification Logic
 const createInquiry = asyncHandler(async (req, res) => {
-  const { name, email, phone, subject, message } = req.body;
+  // 1. Grab captchaToken from the frontend request body
+  const { name, email, phone, subject, message, captchaToken } = req.body;
 
-  if (!name || !email || !message) throw new ApiError(400, 'Name, email, and message are required');
+  // 2. Validate standard required fields
+  if (!name || !email || !message) {
+    throw new ApiError(400, 'Name, email, and message are required');
+  }
 
+  // 3. Ensure the captcha token exists
+  if (!captchaToken) {
+    throw new ApiError(400, 'Captcha verification token is missing');
+  }
+
+  try {
+    // 4. Verify token with Google reCAPTCHA API
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    const verifyUrl = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captchaToken}`;
+
+    const response = await fetch(verifyUrl, { method: 'POST' });
+    const captchaResult = await response.json();
+
+    // 5. If Google says it's a bot or invalid token, block the request
+    if (!captchaResult.success) {
+      throw new ApiError(400, 'Captcha verification failed. Please try again.');
+    }
+  } catch (error) {
+    // Catch syntax errors or network timeouts during verification
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(500, 'Error processing captcha verification');
+  }
+
+  // 6. If everything passes, create the record in the database
   const inquiry = await Inquiry.create({ name, email, phone, subject, message });
 
   return success(res, { inquiry }, 'Inquiry submitted successfully', 201);
