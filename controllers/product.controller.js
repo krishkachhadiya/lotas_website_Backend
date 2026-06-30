@@ -30,10 +30,14 @@ const getProductBySlug = asyncHandler(async (req, res) => {
 });
 
 const createProduct = asyncHandler(async (req, res) => {
-  let { title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
+  let { productId, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
 
+  if (!productId?.trim()) throw new ApiError(400, "Product ID is required");
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
-  if (!slug?.trim())  throw new ApiError(400, 'Slug is required');
+  if (!slug?.trim()) throw new ApiError(400, 'Slug is required');
+
+  const productIdExists = await Product.findOne({ productId: productId.trim(), });
+  if (productIdExists) { throw new ApiError(400, "Product ID already exists"); }
 
   const titleExists = await Product.findOne({ title: { $regex: new RegExp(`^${title.trim()}$`, 'i') } });
   if (titleExists) throw new ApiError(400, 'Product already exists');
@@ -42,6 +46,7 @@ const createProduct = asyncHandler(async (req, res) => {
   if (slugExists) throw new ApiError(400, 'Slug already exists');
 
   const product = await Product.create({
+    productId: productId.trim(),
     title: title.trim(),
     slug: slug.trim().toLowerCase(),
     description: description || '',
@@ -58,7 +63,18 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const { title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
+  const { productId, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
+
+  if (!productId?.trim()) throw new ApiError(400, "Product ID is required");
+
+  const productIdExists = await Product.findOne({
+    productId: productId.trim(),
+    _id: { $ne: req.params.id },
+  });
+
+  if (productIdExists) {
+    throw new ApiError(400, "Product ID already exists");
+  }
 
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
 
@@ -76,6 +92,7 @@ const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findByIdAndUpdate(
     req.params.id,
     {
+      productId: productId.trim(),
       title: title.trim(), slug: slug?.toLowerCase(),
       description, metaTitle: cleanMeta(metaTitle),
       metaDescription: cleanMeta(metaDescription),
