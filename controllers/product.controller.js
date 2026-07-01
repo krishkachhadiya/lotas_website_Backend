@@ -30,14 +30,17 @@ const getProductBySlug = asyncHandler(async (req, res) => {
 });
 
 const createProduct = asyncHandler(async (req, res) => {
-  let { productId, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
+  // Changed productId to productCode
+  let { productCode, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
 
-  if (!productId?.trim()) throw new ApiError(400, "Product ID is required");
+  // Validations updated for productCode
+  if (!productCode?.trim()) throw new ApiError(400, "Product Code is required");
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
   if (!slug?.trim()) throw new ApiError(400, 'Slug is required');
 
-  const productIdExists = await Product.findOne({ productId: productId.trim(), });
-  if (productIdExists) { throw new ApiError(400, "Product ID already exists"); }
+  // Check unique key rule against productCode
+  const productCodeExists = await Product.findOne({ productCode: productCode.trim() });
+  if (productCodeExists) { throw new ApiError(400, "Product Code already exists"); }
 
   const titleExists = await Product.findOne({ title: { $regex: new RegExp(`^${title.trim()}$`, 'i') } });
   if (titleExists) throw new ApiError(400, 'Product already exists');
@@ -46,7 +49,7 @@ const createProduct = asyncHandler(async (req, res) => {
   if (slugExists) throw new ApiError(400, 'Slug already exists');
 
   const product = await Product.create({
-    productId: productId.trim(),
+    productCode: productCode.trim(), // Insert key changed
     title: title.trim(),
     slug: slug.trim().toLowerCase(),
     description: description || '',
@@ -63,17 +66,20 @@ const createProduct = asyncHandler(async (req, res) => {
 });
 
 const updateProduct = asyncHandler(async (req, res) => {
-  const { productId, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
+  // Changed productId to productCode
+  const { productCode, title, slug, description, metaTitle, metaDescription, category, subcategory, status, images, specifications } = req.body;
 
-  if (!productId?.trim()) throw new ApiError(400, "Product ID is required");
+  // Validation updated for productCode
+  if (!productCode?.trim()) throw new ApiError(400, "Product Code is required");
 
-  const productIdExists = await Product.findOne({
-    productId: productId.trim(),
+  // Check uniqueness exclusion for productCode during updates
+  const productCodeExists = await Product.findOne({
+    productCode: productCode.trim(),
     _id: { $ne: req.params.id },
   });
 
-  if (productIdExists) {
-    throw new ApiError(400, "Product ID already exists");
+  if (productCodeExists) {
+    throw new ApiError(400, "Product Code already exists");
   }
 
   if (!title?.trim()) throw new ApiError(400, 'Title is required');
@@ -92,12 +98,17 @@ const updateProduct = asyncHandler(async (req, res) => {
   const product = await Product.findByIdAndUpdate(
     req.params.id,
     {
-      productId: productId.trim(),
-      title: title.trim(), slug: slug?.toLowerCase(),
-      description, metaTitle: cleanMeta(metaTitle),
+      productCode: productCode.trim(), // Update tracking changed
+      title: title.trim(), 
+      slug: slug?.toLowerCase(),
+      description, 
+      metaTitle: cleanMeta(metaTitle),
       metaDescription: cleanMeta(metaDescription),
-      category: category || null, subcategory: subcategory || null,
-      status, images, specifications
+      category: category || null, 
+      subcategory: subcategory || null,
+      status, 
+      images, 
+      specifications
     },
     { new: true, runValidators: true }
   );
